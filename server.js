@@ -4,12 +4,19 @@ import cors from 'cors';
 import mongoose from 'mongoose';
 import crypto from 'crypto';
 import bcrypt from 'bcrypt-nodejs';
+import dotenv from 'dotenv';
+import cloudinaryFramework from 'cloudinary';
+import multer from 'multer';
+import cloudinaryStorage from 'multer-storage-cloudinary';
+
+dotenv.config()
 
 const mongoUrl = process.env.MONGO_URL || "mongodb://localhost/finalProject"
 mongoose.connect(mongoUrl, { useNewUrlParser: true, useUnifiedTopology: true })
 mongoose.Promise = Promise
 
-const User = mongoose.model('User', {
+const UserSchema = mongoose.Schema({
+  _id: mongoose.Schema.Types.ObjectId,
   name: {
     type: String,
     minlength: 2,
@@ -29,10 +36,10 @@ const User = mongoose.model('User', {
   accessToken: {
     type: String,
     default: () => crypto.randomBytes(128).toString('hex'),
-  }
+  }, 
 });
 
-const Ad = mongoose.model('Ad', {
+const AdSchema = mongoose.Schema({
   title: {
     type: String,
     minlength: 5,
@@ -56,9 +63,13 @@ const Ad = mongoose.model('Ad', {
     type: String, 
     required: true,
   },
-  seller: {
+  imageUrl: {
     type: String,
     required: true,
+  },
+  seller: {
+    type: mongoose.Schema.Types.ObjectId, 
+    ref: 'User'
   },
   sold: {
     type: Boolean, 
@@ -70,7 +81,27 @@ const Ad = mongoose.model('Ad', {
   }, 
 }); 
 
-/* if (process.env.RESET_DATABASE) {
+let User = mongoose.model('User', UserSchema);
+let Ad = mongoose.model('Ad', AdSchema);
+
+const cloudinary = cloudinaryFramework.v2; 
+cloudinary.config({
+  cloud_name: 'elsascloudinary',
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET
+})
+
+const storage = cloudinaryStorage({
+  cloudinary,
+  params: {
+    folder: 'images',
+    allowedFormats: ['jpg', 'png'],
+    transformation: [{ width: 500, height: 500, crop: 'limit' }],
+  },
+})
+const parser = multer({ storage })
+
+if (process.env.RESET_DATABASE) {
   const seedDatabase = async () => {
     await Ad.deleteMany();
     await Ad.forEach((ad) => {
@@ -78,7 +109,7 @@ const Ad = mongoose.model('Ad', {
     });
   };
   seedDatabase();
-}; */
+};
 
 const authenticateUser = async (req, res, next) => {
   try {
@@ -156,6 +187,9 @@ const getAdWithSellerName = async (ad) => {
     sellerId: ad.seller,
     sold: ad.sold,
     title: ad.title,
+    image: ad.imageUrl,
+    location: ad.location,
+    delivery: ad.delivery,
     sellerName: seller.name,
     id: ad._id,
     createdAt: ad.createdAt
@@ -177,9 +211,10 @@ app.get('/posts', async (req, res) => {
       return res.json(adWithSellerName)
     } 
     if (userId) {
-      const sellerAds = await Ad.find({ seller: userId });
-      const sellerAdsWithNames = await getAdsWithSellerNames(sellerAds);
-      return res.json(sellerAdsWithNames)
+      const user = await User.findById({ _id: userId });
+      const sellersAds = await Ad.find({ sellerId: mongoose.Types.ObjectId(user._id)})
+      // const sellerAdsWithNames = await getAdsWithSellerNames(sellerAds);
+      return res.json(sellersAds)
     }
     const ads = await Ad.find().sort({createdAt: 'desc'});
     const adsWithSellerNames = await getAdsWithSellerNames(ads);
@@ -191,13 +226,21 @@ app.get('/posts', async (req, res) => {
 });
 
 app.post('/posts', authenticateUser);
-app.post('/posts', async (req, res) => {
+app.post('/posts', parser.single('image'), async (req, res) => {
   try {
     const { title, info, price, category, location, delivery, image, seller } = req.body;
-    const ad = new Ad({ title, info, price, category, location, delivery, image, seller });
+    const ad = new Ad({ 
+      title, 
+      info, 
+      price, 
+      category, 
+      location, 
+      delivery, 
+      imageUrl: req.file.path, 
+      imageId: req.file.filename, 
+      seller 
+    });
     await ad.save();
-    console.log(ad._id)
-    console.log(ad)
     res.json(ad);
   } catch (err) {
     res.status(400).json({
