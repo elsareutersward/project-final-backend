@@ -9,14 +9,13 @@ import cloudinaryFramework from 'cloudinary';
 import multer from 'multer';
 import cloudinaryStorage from 'multer-storage-cloudinary';
 
-dotenv.config()
+dotenv.config();
 
 const mongoUrl = process.env.MONGO_URL || "mongodb://localhost/finalProject"
 mongoose.connect(mongoUrl, { useNewUrlParser: true, useUnifiedTopology: true })
 mongoose.Promise = Promise
 
-const UserSchema = mongoose.Schema({
-  _id: mongoose.Schema.Types.ObjectId,
+let UserSchema = new mongoose.Schema({
   name: {
     type: String,
     minlength: 2,
@@ -39,7 +38,7 @@ const UserSchema = mongoose.Schema({
   }, 
 });
 
-const AdSchema = mongoose.Schema({
+let AdSchema = new mongoose.Schema({
   title: {
     type: String,
     minlength: 5,
@@ -89,7 +88,7 @@ cloudinary.config({
   cloud_name: 'elsascloudinary',
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET
-})
+});
 
 const storage = cloudinaryStorage({
   cloudinary,
@@ -98,18 +97,22 @@ const storage = cloudinaryStorage({
     allowedFormats: ['jpg', 'png'],
     transformation: [{ width: 500, height: 500, crop: 'limit' }],
   },
-})
-const parser = multer({ storage })
+});
+const parser = multer({ storage });
 
-if (process.env.RESET_DATABASE) {
+/* if (process.env.RESET_DATABASE) {
   const seedDatabase = async () => {
+    await User.deleteMany();
+    await User.forEach((user) => {
+      new User(user).save();
+    });
     await Ad.deleteMany();
     await Ad.forEach((ad) => {
       new Ad(ad).save();
     });
   };
   seedDatabase();
-};
+}; */
 
 const authenticateUser = async (req, res, next) => {
   try {
@@ -145,7 +148,7 @@ app.post('/users/create', async (req, res) => {
     const {name, email, password} = req.body;
     const user = new User({name, email, password: bcrypt.hashSync(password)});
     await user.save();
-    res.status(201);
+    res.json({ userId: user._id, accessToken: user.accessToken, userName: user.name });
   } catch (err) {
     res.status(400).json({ message: 'Could not create user', errors: err.errors });
   }
@@ -178,48 +181,33 @@ app.get('/seller/:id', async (req, res) => {
 
 //Endpoints for ad
 
-// HELPERS
-const getAdWithSellerName = async (ad) => {
-  const seller = await User.findOne({ _id: ad.seller });
-  return {
-    info: ad.info,
-    price: ad.price,
-    sellerId: ad.seller,
-    sold: ad.sold,
-    title: ad.title,
-    image: ad.imageUrl,
-    location: ad.location,
-    delivery: ad.delivery,
-    sellerName: seller.name,
-    id: ad._id,
-    createdAt: ad.createdAt
-  };
-}
-
-const getAdsWithSellerNames = async (ads) => {
-  return await Promise.all(ads.map(async ad =>
-    getAdWithSellerName(ad)
-  ));
-}
-
 app.get('/posts', async (req, res) => {
   try {
     const { id, userId } = req.query
     if (id) {
-      const ad = await Ad.findOne({ _id: id });
-      const adWithSellerName = await getAdWithSellerName(ad);
-      return res.json(adWithSellerName)
+      console.log(id)
+      const ad = await Ad.findOne({ _id: id }).populate('seller');
+      const response = {
+        info: ad.info,
+        price: ad.price,
+        sellerId: ad.seller._id,
+        sold: ad.sold,
+        title: ad.title,
+        image: ad.imageUrl,
+        location: ad.location,
+        delivery: ad.delivery,
+        sellerName: ad.seller.name,
+        id: ad._id,
+        createdAt: ad.createdAt
+      }
+      return res.json(response)
     } 
     if (userId) {
-      const user = await User.findById({ _id: userId });
-      const sellersAds = await Ad.find({ sellerId: mongoose.Types.ObjectId(user._id)})
-      // const sellerAdsWithNames = await getAdsWithSellerNames(sellerAds);
+      const sellersAds = await Ad.find({ seller: mongoose.Types.ObjectId(userId)})
       return res.json(sellersAds)
     }
     const ads = await Ad.find().sort({createdAt: 'desc'});
-    const adsWithSellerNames = await getAdsWithSellerNames(ads);
-
-    res.json(adsWithSellerNames);
+    res.json(ads);
   } catch (err) {
     res.status(404).json({error: 'Did not find product', error:err })
   }
@@ -228,7 +216,7 @@ app.get('/posts', async (req, res) => {
 app.post('/posts', authenticateUser);
 app.post('/posts', parser.single('image'), async (req, res) => {
   try {
-    const { title, info, price, category, location, delivery, image, seller } = req.body;
+    const { title, info, price, category, location, delivery, seller } = req.body;
     const ad = new Ad({ 
       title, 
       info, 
@@ -237,7 +225,7 @@ app.post('/posts', parser.single('image'), async (req, res) => {
       location, 
       delivery, 
       imageUrl: req.file.path, 
-      imageId: req.file.filename, 
+      imageId: req.file.filename,
       seller 
     });
     await ad.save();
