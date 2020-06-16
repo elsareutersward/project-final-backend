@@ -317,10 +317,10 @@ app.post('/conversation', async (req, res) => {
 app.post('/message', authenticateUser);
 app.post('/message', async (req, res) => {
   try {
-    const { message, name } = req.body;
-    const conversationMessage = new Message({ message, name });
-    await message.save();
-    res.json(conversationMessage);
+    const { message, name, conversation } = req.body;
+    const conversationMessage = new Message({ message, name, conversation });
+    await conversationMessage.save();
+    res.sendStatus(200);
   } catch (err) {
     res.status(400).json({
       error: 'Could not create conversation',
@@ -345,17 +345,28 @@ app.get('/conversations', async (req, res) => {
   }
 });
 
-app.get('/conversation', authenticateUser);
+//app.get('/conversation/:id', authenticateUser);
 app.get('/conversation/:id', async (req, res) => {
   try {
-    const { conversationId } = req.params;
-    const conversation = await Conversation.findOne({ _id: conversationId })
-    const messagesInConversation = await Message.find({ 
-      conversation: mongoose.Types.ObjectId(conversationId)
-    });
-    return res.json({ conversation, messagesInConversation });
+    const { id } = req.params;
+    const conversationInfo = await Conversation.findOne({ _id: id }).populate('adId');
+    const info = {
+      title: conversationInfo.name, 
+      image: conversationInfo.adId.imageUrl,
+      price: conversationInfo.adId.price,
+      location: conversationInfo.adId.location,
+      delivery: conversationInfo.adId.delivery,
+    };
+    const conversationMessages = await Message.find({ 
+      conversation: mongoose.Types.ObjectId(id)
+    }).populate('name');
+    const messages = conversationMessages.map(message =>
+      ({message: message.message,
+      name: message.name.name})
+    );
+    return res.json({ info, messages });
   } catch (err) {
-    res.status(404).json({error: 'Did not find product', error:err });
+    res.status(404).json({error: 'Did not find conversation', error:err });
   }
 });
 
