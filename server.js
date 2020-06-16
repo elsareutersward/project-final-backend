@@ -15,7 +15,7 @@ const mongoUrl = process.env.MONGO_URL || "mongodb://localhost/finalProject"
 mongoose.connect(mongoUrl, { useNewUrlParser: true, useUnifiedTopology: true })
 mongoose.Promise = Promise
 
-let UserSchema = new mongoose.Schema({
+const UserSchema = new mongoose.Schema({
   name: {
     type: String,
     minlength: 2,
@@ -38,10 +38,9 @@ let UserSchema = new mongoose.Schema({
   }, 
 });
 
-let AdSchema = new mongoose.Schema({
+const AdSchema = new mongoose.Schema({
   title: {
     type: String,
-    minlength: 5,
     required: true,
   },
   info: {
@@ -68,7 +67,7 @@ let AdSchema = new mongoose.Schema({
   },
   seller: {
     type: mongoose.Schema.Types.ObjectId, 
-    ref: 'User'
+    ref: 'User',
   },
   sold: {
     type: Boolean, 
@@ -80,8 +79,54 @@ let AdSchema = new mongoose.Schema({
   }, 
 }); 
 
+const ConversationSchema = new mongoose.Schema({
+  name: {
+    type: String,
+    required: true,
+  },
+  adId: {
+    type: mongoose.Schema.Types.ObjectId, 
+    ref: 'Ad',
+  },
+  createdAt: { 
+    type: Date, 
+    default: Date.now,
+  },
+  sellerId: {
+    type: mongoose.Schema.Types.ObjectId, 
+    ref: 'User',
+  },
+  buyerId: {
+    type: mongoose.Schema.Types.ObjectId, 
+    ref: 'User',
+  },
+});
+
+const MessageSchema = mongoose.Schema({
+  message: {
+    type: String,
+    required: true, 
+    minlength: 5,
+    maxlength: 140
+  },
+  name: {
+    type: mongoose.Schema.Types.ObjectId, 
+    ref: 'User',
+  },
+  conversation: {
+    type: mongoose.Schema.Types.ObjectId, 
+    ref: 'Conversation',
+  },
+  createdAt: { 
+    type: Date, 
+    default: Date.now,
+  }
+});
+
 let User = mongoose.model('User', UserSchema);
 let Ad = mongoose.model('Ad', AdSchema);
+let Conversation = mongoose.model('Conversation', ConversationSchema);
+let Message = mongoose.model('Message', MessageSchema);
 
 const cloudinary = cloudinaryFramework.v2; 
 cloudinary.config({
@@ -141,7 +186,7 @@ app.use((req, res, next) => {
   };
 });
 
-// Endpoints for user
+// Endpoints for User
 
 app.post('/users/create', async (req, res) => {
   try {
@@ -163,11 +208,11 @@ app.post('/sessions', async (req, res) => {
   }
 });
 
-app.get('/users/:id', authenticateUser);
+/* app.get('/users/:id', authenticateUser);
 app.get('/users/:id', async (req, res) => {
   //user information
   res.status(201).json({ secretMessage });
-});
+}); */
 
 app.get('/seller/:id', async (req, res) => {
   try {
@@ -179,13 +224,12 @@ app.get('/seller/:id', async (req, res) => {
   }
 })
 
-//Endpoints for ad
+//Endpoints for Ad
 
 app.get('/posts', async (req, res) => {
   try {
     const { id, userId } = req.query
     if (id) {
-      console.log(id)
       const ad = await Ad.findOne({ _id: id }).populate('seller');
       const response = {
         info: ad.info,
@@ -226,7 +270,7 @@ app.post('/posts', parser.single('image'), async (req, res) => {
       delivery, 
       imageUrl: req.file.path, 
       imageId: req.file.filename,
-      seller 
+      seller
     });
     await ad.save();
     res.json(ad);
@@ -235,6 +279,83 @@ app.post('/posts', parser.single('image'), async (req, res) => {
       error: 'Could not save ad to the Database',
       errors: err.errors
     });
+  }
+});
+
+app.delete('/posts', authenticateUser);
+app.delete('/posts/:id', async (req, res) => {
+  try {
+    const { id } = req.params; 
+    await Ad.deleteOne({ _id: id });
+    res.sendStatus(200);
+  } catch (err) {
+    console.error('hej', err);
+    res.status(404).json({
+      error: 'Could not delete post',
+      errors: err.errors
+    });
+  }
+});
+
+// Endpoints Conversation and Message
+
+app.post('/conversation', authenticateUser);
+app.post('/conversation', async (req, res) => {
+  try {
+    const { name, adId, sellerId, buyerId } = req.body;
+    const conversation = new Conversation({ name, adId, sellerId, buyerId });
+    await conversation.save();
+    res.json(conversation);
+  } catch (err) {
+    res.status(400).json({
+      error: 'Could not create conversation',
+      errors: err.errors
+    });
+  }
+});
+
+app.post('/message', authenticateUser);
+app.post('/message', async (req, res) => {
+  try {
+    const { message, name } = req.body;
+    const conversationMessage = new Message({ message, name });
+    await message.save();
+    res.json(conversationMessage);
+  } catch (err) {
+    res.status(400).json({
+      error: 'Could not create conversation',
+      errors: err.errors
+    });
+  }
+});
+
+app.get('/conversations', authenticateUser);
+app.get('/conversations', async (req, res) => {
+  try {
+    const { userId } = req.query;
+    const sellerConversations = await Conversation.find({ 
+      sellerId: mongoose.Types.ObjectId(userId)
+    })
+    const buyerConversations = await Conversation.find({ 
+      buyerId: mongoose.Types.ObjectId(userId)
+    }) 
+    return res.json({sellerConversations, buyerConversations});
+  } catch (err) {
+    res.status(404).json({error: 'Did not find any conversations', error:err });
+  }
+});
+
+app.get('/conversation', authenticateUser);
+app.get('/conversation/:id', async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+    const conversation = await Conversation.findOne({ _id: conversationId })
+    const messagesInConversation = await Message.find({ 
+      conversation: mongoose.Types.ObjectId(conversationId)
+    });
+    return res.json({ conversation, messagesInConversation });
+  } catch (err) {
+    res.status(404).json({error: 'Did not find product', error:err });
   }
 });
 
