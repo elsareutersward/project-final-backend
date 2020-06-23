@@ -69,10 +69,6 @@ const AdSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId, 
     ref: 'User',
   },
-  sold: {
-    type: Boolean, 
-    default: false,
-  },
   createdAt: { 
     type: Date, 
     default: Date.now,
@@ -100,13 +96,17 @@ const ConversationSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId, 
     ref: 'User',
   },
+  status: {
+    type: Number,
+    default: 1,
+  }
 });
 
 const MessageSchema = mongoose.Schema({
   message: {
     type: String,
     required: true, 
-    minlength: 5,
+    minlength: 1,
     maxlength: 140
   },
   name: {
@@ -144,20 +144,6 @@ const storage = cloudinaryStorage({
   },
 });
 const parser = multer({ storage });
-
-/* if (process.env.RESET_DATABASE) {
-  const seedDatabase = async () => {
-    await User.deleteMany();
-    await User.forEach((user) => {
-      new User(user).save();
-    });
-    await Ad.deleteMany();
-    await Ad.forEach((ad) => {
-      new Ad(ad).save();
-    });
-  };
-  seedDatabase();
-}; */
 
 const authenticateUser = async (req, res, next) => {
   try {
@@ -208,12 +194,6 @@ app.post('/sessions', async (req, res) => {
   }
 });
 
-/* app.get('/users/:id', authenticateUser);
-app.get('/users/:id', async (req, res) => {
-  //user information
-  res.status(201).json({ secretMessage });
-}); */
-
 app.get('/seller/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -235,7 +215,6 @@ app.get('/posts', async (req, res) => {
         info: ad.info,
         price: ad.price,
         sellerId: ad.seller._id,
-        sold: ad.sold,
         title: ad.title,
         image: ad.imageUrl,
         location: ad.location,
@@ -335,17 +314,17 @@ app.get('/conversations', async (req, res) => {
     const { userId } = req.query;
     const sellerConversations = await Conversation.find({ 
       sellerId: mongoose.Types.ObjectId(userId)
-    })
+    }).populate('buyerId').populate('adId')
     const buyerConversations = await Conversation.find({ 
       buyerId: mongoose.Types.ObjectId(userId)
-    }) 
+    }).populate('sellerId').populate('adId')
     return res.json({sellerConversations, buyerConversations});
   } catch (err) {
     res.status(404).json({error: 'Did not find any conversations', error:err });
   }
 });
 
-//app.get('/conversation/:id', authenticateUser);
+app.get('/conversation/:id', authenticateUser);
 app.get('/conversation/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -362,7 +341,8 @@ app.get('/conversation/:id', async (req, res) => {
     }).populate('name');
     const messages = conversationMessages.map(message =>
       ({message: message.message,
-      name: message.name.name})
+      name: message.name.name,
+      createdAt: message.createdAt})
     );
     return res.json({ info, messages });
   } catch (err) {
